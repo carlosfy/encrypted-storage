@@ -14,7 +14,7 @@ object ClientApp extends IOApp:
   def run(args: List[String]): IO[ExitCode] =
     (for {
       path <- IO(new File(".").getCanonicalPath)
-      _ <- Client.start[IO](SocketAddress(host"localhost", port"5555"), path + "/" + args(0)).compile.drain
+      _ <- Client.push[IO](SocketAddress(host"localhost", port"5555"), path + "/" + args(0)).compile.drain
     } yield ()).as(ExitCode.Success)
 
 
