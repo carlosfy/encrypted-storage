@@ -10,3 +10,5 @@ project/target
 project/metals.sbt
 
 target
+
+.idea
