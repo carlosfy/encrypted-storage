@@ -8,9 +8,13 @@ import com.comcast.ip4s.*
 import cats.effect.std.Console
 import cats.MonadError
 
+import java.io.File
+
 object Server:
 
     val destinationFile = "destination.jpg"
+    val originFile = "meditate_monke.jpg"
+    val prefix = new File(".").getCanonicalPath
 
     def startController[F[_]: Files: Network: Concurrent: Console](port: Port): Stream[F, Nothing] =
         Stream.exec(Console[F].println(s"Listening on port: $port")) ++
@@ -36,19 +40,27 @@ object Server:
     def handler[F[_]: Files: Network: Concurrent: Console](command: String, socket: Socket[F]): Stream[F, Nothing] =
       Stream.exec(Console[F].println(s"command received: $command")) ++ {
         command match
-          case "PUSH" => processPush(socket, destinationFile) //TODO: Change when the command include the destination
+          case "PUSH" => handlePush(socket, destinationFile) //TODO: Change when the command include the destination
+          case "GET" => handleGet(socket, destinationFile)
           case unknownCommand => handleUnknownCommand(unknownCommand)
       }
 
-    def processPush[F[_]: Files: Network: Concurrent: Console](socket: Socket[F], destination: String): Stream[F, Nothing] =
-      Stream.exec(Console[F].println("Received PUSH command")) ++
+    def handlePush[F[_]: Files: Network: Concurrent: Console](socket: Socket[F], destination: String): Stream[F, Nothing] =
+      Stream.exec(Console[F].println("Handling PUSH")) ++
       Stream("Ok")
         .interleave(Stream.constant("\n"))
         .through(text.utf8.encode)
         .through(socket.writes) ++
           Stream.exec(Console[F].println("Ready to receive data")) ++
             socket.reads
-              .through(Files[F].writeAll(Path(destination)))
+              .through(Files[F].writeAll(Path(destination))) ++
+            Stream.exec(Console[F].println("Data received"))
+
+    def handleGet[F[_]: Files: Network: Concurrent: Console](socket: Socket[F], origin: String): Stream[F, Nothing] =
+      Stream.exec(Console[F].println("Handling GET")) ++
+      Files[F].readAll(Path(origin))
+          .through(socket.writes) ++
+          Stream.exec(Console[F].println(s"Sending data done"))
 
     def handleUnknownCommand[F[_]: Console: Concurrent](command: String): Stream[F, Nothing] =
       Stream.eval(Console[F].println(s"Received unknown command: $command")) >>

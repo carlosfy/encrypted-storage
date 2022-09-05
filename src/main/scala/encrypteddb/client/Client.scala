@@ -10,6 +10,9 @@ import cats.syntax.all._
 
 object Client:
 
+    val destinationFile = "destination.jpg"
+    val sourceFile = "meditate_monke.jpg"
+
     def connect[F[_]: Temporal: Network:Console](address: SocketAddress[Host]): Stream[F, Socket[F]] =
       Stream.exec(Console[F].println(s"Trying to connect to $address")) ++
       Stream.resource(Network[F].client(address))
@@ -31,6 +34,20 @@ object Client:
                         Files[F].readAll(Path(source))
                           .through(socket.writes) ++
                         Stream.exec(Console[F].println(s"Pushing data done"))
+          }
+
+    def get[F[_]: Temporal: Network: Console: Files](address: SocketAddress[Host]): Stream[F, Unit] =
+      Stream.exec(Console[F].println(s"Trying to get a file from $address")) ++
+        connect(address)
+          .flatMap { socket =>
+            Stream("GET")
+              .interleave(Stream.constant("\n"))
+              .through(text.utf8.encode)
+              .through(socket.writes) ++
+              Stream.exec(Console[F].println(s"Receiving data from $address")) ++
+                socket.reads
+                  .through(Files[F].writeAll(Path(sourceFile))) ++
+                  Stream.exec(Console[F].println(s"Receive data done"))
           }
 
 
