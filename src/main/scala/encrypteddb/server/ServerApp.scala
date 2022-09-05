@@ -5,4 +5,4 @@ import com.comcast.ip4s._
 
 object ServerApp extends IOApp: 
     def run(args: List[String]): IO[ExitCode] =
-        Server.startCommands[IO](port"5555").compile.drain.as(ExitCode.Success)
+        Server.startController[IO](port"5555").compile.drain.as(ExitCode.Success)

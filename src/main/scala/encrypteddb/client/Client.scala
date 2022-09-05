@@ -10,17 +10,9 @@ import cats.syntax.all._
 
 object Client:
 
-    def connect[F[_]: Temporal: Network](address: SocketAddress[Host]): Stream[F, Socket[F]] =
+    def connect[F[_]: Temporal: Network:Console](address: SocketAddress[Host]): Stream[F, Socket[F]] =
+      Stream.exec(Console[F].println(s"Trying to connect to $address")) ++
       Stream.resource(Network[F].client(address))
-
-    def start[F[_]: Temporal: Network: Console: Files](address: SocketAddress[Host], source: String): Stream[F, Unit] =
-        Stream.exec(Console[F].println(s"Trying to connect to $address")) ++
-          connect(address)
-            .flatMap { socket =>
-                Stream.exec(Console[F].println(s"Connected to $address")) ++
-                  Files[F].readAll(Path(source))
-                    .through(socket.writes)
-            }
 
     def push[F[_]: Temporal: Network: Console: Files](address: SocketAddress[Host], source: String): Stream[F, Unit] =
       Stream.exec(Console[F].println(s"Trying to push file $source to $address")) ++
@@ -37,7 +29,8 @@ object Client:
                     .foreach(r => Console[F].println(s"responded: $r")) ++
                       Stream.exec(Console[F].println(s"Pushing data to $address")) ++
                         Files[F].readAll(Path(source))
-                          .through(socket.writes)
+                          .through(socket.writes) ++
+                        Stream.exec(Console[F].println(s"Pushing data done"))
           }
 
 
