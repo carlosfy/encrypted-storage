@@ -21,10 +21,7 @@ object Client:
       Stream.exec(Console[F].println(s"Trying to push file $source to $address")) ++
         connect(address)
           .flatMap { socket =>
-              Stream("PUSH")
-                .interleave(Stream.constant("\n"))
-                .through(text.utf8.encode)
-                .through(socket.writes) ++
+              sendCommand(socket, "PUSH") ++
                   socket.reads
                     .through(text.utf8.decode)
                     .through(text.lines)
@@ -40,14 +37,18 @@ object Client:
       Stream.exec(Console[F].println(s"Trying to get a file from $address")) ++
         connect(address)
           .flatMap { socket =>
-            Stream("GET")
-              .interleave(Stream.constant("\n"))
-              .through(text.utf8.encode)
-              .through(socket.writes) ++
+            sendCommand(socket, "GET") ++
               Stream.exec(Console[F].println(s"Receiving data from $address")) ++
                 socket.reads
                   .through(Files[F].writeAll(Path(sourceFile))) ++
                   Stream.exec(Console[F].println(s"Receive data done"))
           }
+
+    def sendCommand[F[_]: Network](socket: Socket[F], command: String): Stream[F, Nothing] =
+      Stream(command)
+        .interleave(Stream.constant("\n"))
+        .through(text.utf8.encode)
+        .through(socket.writes)
+
 
 
