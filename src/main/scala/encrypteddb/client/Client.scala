@@ -1,23 +1,23 @@
-package encrypteddb.client
+package encrypteddb
+package client
 
-import cats.effect.{MonadCancel, Concurrent}
+import cats.effect.{Concurrent, MonadCancel}
 import cats.effect.std.Console
 import fs2.io.net.{Network, Socket}
 import fs2.{Chunk, Stream, text}
 import com.comcast.ip4s.*
 import fs2.io.file.{Files, Path}
 import cats.syntax.all.*
+import encrypteddb.CommunMethods.{getMessage, sendMessage}
 
 import java.io.FileNotFoundException
 
 object Client:
 
-    val destinationFile = "destination.jpg"
-    val sourceFile = "meditate_monke.jpg"
-
     def clientFolderName =  "clientFiles/"
 
-    class InvalidServerResponse(str: String) extends Exception(str)
+    case class InvalidServerResponse(str: String) extends Exception(str)
+
 
     def connect[F[_]: Concurrent: Network:Console](address: SocketAddress[Host]): Stream[F, Socket[F]] =
       Stream.exec(Console[F].println(s"Trying to connect to $address")) ++
@@ -28,11 +28,10 @@ object Client:
         connect(address)
           .flatMap { socket =>
             sendMessage(socket, "PUSH"+ " " + file) ++
-                getValidatedResponse(socket, file) ++
+                getValidatedResponse(socket) ++
                   pushFile(address, socket, file) ++
                     Stream.exec(Console[F].println(s"Pushing data done"))
           }
-
 
     def get[F[_]: Concurrent: Network: Console: Files](address: SocketAddress[Host], file: String): Stream[F, Unit] =
       Stream.exec(Console[F].println(s"Trying to get a file from $address")) ++
@@ -40,17 +39,10 @@ object Client:
           .flatMap { socket =>
             sendMessage(socket, "GET" + " " + file) ++
               Stream.exec(Console[F].println(s"Receiving data from $address")) ++
-                getValidatedResponse(socket, file) ++
+                getValidatedResponse(socket) ++
                   getFile(address, socket, file) ++
                     Stream.exec(Console[F].println(s"Receive data done"))
           }
-
-    def sendMessage[F[_]: Network](socket: Socket[F], command: String): Stream[F, Nothing] =
-      Stream(command)
-        .interleave(Stream.constant("\n"))
-        .through(text.utf8.encode)
-        .through(socket.writes)
-
 
     def pushFile[F[_]: Concurrent: Network: Console: Files](address: SocketAddress[Host], socket: Socket[F], file: String): Stream[F, Nothing] =
       Stream.eval(Files[F].exists(Path(clientFolderName + file)))
@@ -68,19 +60,14 @@ object Client:
           socket.reads
             .through(Files[F].writeAll(Path(clientFolderName + file)))
 
-    def getMessage[F[_]: Concurrent: Network: Console: Files]( socket: Socket[F], file: String): Stream[F, String] =
-      socket.reads
-        .through(text.utf8.decode)
-        .through(text.lines)
-        .head
 
     def validateResponse[F[_]: Concurrent: Network: Console: Files]( response: String): Stream[F, Nothing] =
       response.toUpperCase() match
         case "OK" => Stream.empty
-        case _    => Stream.raiseError(new InvalidServerResponse(s"Server responded: $response"))
+        case _    => Stream.raiseError(InvalidServerResponse(s"Reponse: $response"))
 
-    def getValidatedResponse[F[_]: Concurrent: Network: Console: Files](socket: Socket[F], file: String): Stream[F, Nothing] =
-      getMessage(socket, file)
+    def getValidatedResponse[F[_]: Concurrent: Network: Console: Files](socket: Socket[F]): Stream[F, Nothing] =
+      getMessage(socket)
         .flatMap(validateResponse(_))
 
 
