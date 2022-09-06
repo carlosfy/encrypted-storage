@@ -7,14 +7,12 @@ import fs2.io.net.{Network, Socket}
 import com.comcast.ip4s.*
 import cats.effect.std.Console
 import cats.MonadError
+import encrypteddb.CommunMethods.{getMessage, sendMessage}
+import cats.syntax.all.*
 
 import java.io.{File, FileNotFoundException}
 
 object Server:
-
-    val destinationFile = "destination.jpg"
-    val originFile = "meditate_monke.jpg"
-    val prefix = new File(".").getCanonicalPath
 
     def serverFolderName =  "serverFiles/"
 
@@ -25,19 +23,16 @@ object Server:
     def handleUncomingConnexions[F[_]: Files: Network: Concurrent: Console](port: Port): Stream[F, Nothing] =
       Network[F].server(port = Some(port)).map { client =>
         Stream.exec(Console[F].println("New client connected")) ++
-        handleOneConnexion(client) ++
-        Stream.exec(Console[F].println("Client Disconnect"))
+          handleOneConnexion(client) ++
+            Stream.exec(Console[F].println("Client Disconnect"))
 
       }.parJoin(10)
 
     def handleOneConnexion[F[_]: Files: Network: Concurrent: Console](socket: Socket[F]): Stream[F, Nothing] =
       Stream.exec(Console[F].println("Handling one connexion")) ++
-      socket.reads
-        .through(text.utf8.decode)
-        .through(text.lines)
-        .head
-        .flatMap(command => handler(command, socket)) ++
-        Stream.exec(Console[F].println("Handled"))
+          getMessage(socket)
+            .flatMap(command => handler(command, socket)) ++
+              Stream.exec(Console[F].println("Handled"))
 
     def handler[F[_]: Files: Network: Concurrent: Console](command: String, socket: Socket[F]): Stream[F, Nothing] =
       Stream.exec(Console[F].println(s"command received: $command")) ++ {
@@ -77,12 +72,6 @@ object Server:
           else
             sendError(socket)
         }
-
-    def sendMessage[F[_]: Files: Network: Concurrent: Console](socket: Socket[F], response: String): Stream[F, Nothing] =
-      Stream(response)
-        .interleave(Stream.constant("\n"))
-        .through(text.utf8.encode)
-        .through(socket.writes)
 
     def sendOk[F[_]: Files: Network: Concurrent: Console](socket: Socket[F]): Stream[F, Nothing] =
       sendMessage(socket, "OK")
