@@ -16,6 +16,8 @@ object Server:
     val originFile = "meditate_monke.jpg"
     val prefix = new File(".").getCanonicalPath
 
+    def clientFolderName =  "serverFiles/"
+
     def startController[F[_]: Files: Network: Concurrent: Console](port: Port): Stream[F, Nothing] =
         Stream.exec(Console[F].println(s"Listening on port: $port")) ++
           handleUncomingConnexions(port)
@@ -39,10 +41,10 @@ object Server:
 
     def handler[F[_]: Files: Network: Concurrent: Console](command: String, socket: Socket[F]): Stream[F, Nothing] =
       Stream.exec(Console[F].println(s"command received: $command")) ++ {
-        command match
-          case "PUSH" => handlePush(socket, destinationFile) //TODO: Change when the command include the destination
-          case "GET" => handleGet(socket, destinationFile)
-          case unknownCommand => handleUnknownCommand(unknownCommand)
+        command.split(" ").toList match
+          case "PUSH" :: file :: _ => handlePush(socket, file) //TODO: Change when the command include the destination
+          case "GET" :: file :: _ => handleGet(socket, file)
+          case _ => handleUnknownCommand(command)
       }
 
     def handlePush[F[_]: Files: Network: Concurrent: Console](socket: Socket[F], destination: String): Stream[F, Nothing] =
@@ -53,12 +55,12 @@ object Server:
         .through(socket.writes) ++
           Stream.exec(Console[F].println("Ready to receive data")) ++
             socket.reads
-              .through(Files[F].writeAll(Path(destination))) ++
+              .through(Files[F].writeAll(Path(clientFolderName + destination))) ++
             Stream.exec(Console[F].println("Data received"))
 
     def handleGet[F[_]: Files: Network: Concurrent: Console](socket: Socket[F], origin: String): Stream[F, Nothing] =
       Stream.exec(Console[F].println("Handling GET")) ++
-      Files[F].readAll(Path(origin))
+      Files[F].readAll(Path(clientFolderName + origin))
           .through(socket.writes) ++
           Stream.exec(Console[F].println(s"Sending data done"))
 

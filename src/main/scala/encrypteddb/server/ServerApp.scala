@@ -1,8 +1,16 @@
 package encrypteddb.server
 
 import cats.effect.{ExitCode, IO, IOApp}
-import com.comcast.ip4s._
+import com.comcast.ip4s.*
 
-object ServerApp extends IOApp: 
+import java.io.File
+
+object ServerApp extends IOApp:
+
+    def startListening = Server.startController[IO](port"5555").compile.drain
+
     def run(args: List[String]): IO[ExitCode] =
-        Server.startController[IO](port"5555").compile.drain.as(ExitCode.Success)
+        (for {
+            _ <- IO(new File(Server.clientFolderName).mkdirs())
+            _ <- startListening
+        } yield ()).as(ExitCode.Success)
