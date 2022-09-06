@@ -11,6 +11,6 @@ object ServerApp extends IOApp:
 
     def run(args: List[String]): IO[ExitCode] =
         (for {
-            _ <- IO(new File(Server.clientFolderName).mkdirs())
+            _ <- IO(new File(Server.serverFolderName).mkdirs())
             _ <- startListening
         } yield ()).as(ExitCode.Success)

@@ -1,14 +1,14 @@
 package encrypteddb.server
 
 import fs2.io.file.{Files, Path}
-import cats.effect.Concurrent
+import cats.effect.{Concurrent, Temporal}
 import fs2.{Stream, text}
 import fs2.io.net.{Network, Socket}
 import com.comcast.ip4s.*
 import cats.effect.std.Console
 import cats.MonadError
 
-import java.io.File
+import java.io.{File, FileNotFoundException}
 
 object Server:
 
@@ -16,7 +16,7 @@ object Server:
     val originFile = "meditate_monke.jpg"
     val prefix = new File(".").getCanonicalPath
 
-    def clientFolderName =  "serverFiles/"
+    def serverFolderName =  "serverFiles/"
 
     def startController[F[_]: Files: Network: Concurrent: Console](port: Port): Stream[F, Nothing] =
         Stream.exec(Console[F].println(s"Listening on port: $port")) ++
@@ -49,21 +49,43 @@ object Server:
 
     def handlePush[F[_]: Files: Network: Concurrent: Console](socket: Socket[F], destination: String): Stream[F, Nothing] =
       Stream.exec(Console[F].println("Handling PUSH")) ++
-      Stream("Ok")
-        .interleave(Stream.constant("\n"))
-        .through(text.utf8.encode)
-        .through(socket.writes) ++
+        sendOk(socket) ++
           Stream.exec(Console[F].println("Ready to receive data")) ++
             socket.reads
-              .through(Files[F].writeAll(Path(clientFolderName + destination))) ++
+              .through(Files[F].writeAll(Path(serverFolderName + destination))) ++
             Stream.exec(Console[F].println("Data received"))
 
     def handleGet[F[_]: Files: Network: Concurrent: Console](socket: Socket[F], origin: String): Stream[F, Nothing] =
       Stream.exec(Console[F].println("Handling GET")) ++
-      Files[F].readAll(Path(clientFolderName + origin))
-          .through(socket.writes) ++
+        pushFile(socket, origin) ++
           Stream.exec(Console[F].println(s"Sending data done"))
+
 
     def handleUnknownCommand[F[_]: Console: Concurrent](command: String): Stream[F, Nothing] =
       Stream.eval(Console[F].println(s"Received unknown command: $command")) >>
         Stream.raiseError(new Error("Unknown command"))
+
+
+    def pushFile[F[_]: Concurrent: Network: Console: Files](socket: Socket[F], file: String): Stream[F, Nothing] =
+      Stream.eval(Files[F].exists(Path(serverFolderName + file)))
+        .flatMap { fileExist =>
+          if (fileExist)
+            sendOk(socket) ++
+              Stream.exec(Console[F].println(s"Pushing data")) ++
+              Files[F].readAll(Path(serverFolderName + file))
+                .through(socket.writes)
+          else
+            sendError(socket)
+        }
+
+    def sendMessage[F[_]: Files: Network: Concurrent: Console](socket: Socket[F], response: String): Stream[F, Nothing] =
+      Stream(response)
+        .interleave(Stream.constant("\n"))
+        .through(text.utf8.encode)
+        .through(socket.writes)
+
+    def sendOk[F[_]: Files: Network: Concurrent: Console](socket: Socket[F]): Stream[F, Nothing] =
+      sendMessage(socket, "OK")
+
+    def sendError[F[_]: Files: Network: Concurrent: Console](socket: Socket[F]): Stream[F, Nothing] =
+      sendMessage(socket, "Error: FileNotFound")

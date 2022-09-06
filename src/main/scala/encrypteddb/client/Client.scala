@@ -1,12 +1,14 @@
 package encrypteddb.client
 
-import cats.effect.{MonadCancel, Temporal}
+import cats.effect.{MonadCancel, Concurrent}
 import cats.effect.std.Console
 import fs2.io.net.{Network, Socket}
 import fs2.{Chunk, Stream, text}
 import com.comcast.ip4s.*
 import fs2.io.file.{Files, Path}
-import cats.syntax.all._
+import cats.syntax.all.*
+
+import java.io.FileNotFoundException
 
 object Client:
 
@@ -15,42 +17,71 @@ object Client:
 
     def clientFolderName =  "clientFiles/"
 
-    def connect[F[_]: Temporal: Network:Console](address: SocketAddress[Host]): Stream[F, Socket[F]] =
+    class InvalidServerResponse(str: String) extends Exception(str)
+
+    def connect[F[_]: Concurrent: Network:Console](address: SocketAddress[Host]): Stream[F, Socket[F]] =
       Stream.exec(Console[F].println(s"Trying to connect to $address")) ++
       Stream.resource(Network[F].client(address))
 
-    def push[F[_]: Temporal: Network: Console: Files](address: SocketAddress[Host], file: String): Stream[F, Unit] =
+    def push[F[_]: Concurrent: Network: Console: Files](address: SocketAddress[Host], file: String): Stream[F, Unit] =
       Stream.exec(Console[F].println(s"Trying to push file $file to $address")) ++
         connect(address)
           .flatMap { socket =>
-              sendCommand(socket, "PUSH"+ " " + file) ++
-                  socket.reads
-                    .through(text.utf8.decode)
-                    .through(text.lines)
-                    .head
-                    .foreach(r => Console[F].println(s"responded: $r")) ++
-                      Stream.exec(Console[F].println(s"Pushing data to $address")) ++
-                        Files[F].readAll(Path(clientFolderName + file))
-                          .through(socket.writes) ++
-                        Stream.exec(Console[F].println(s"Pushing data done"))
+            sendMessage(socket, "PUSH"+ " " + file) ++
+                getValidatedResponse(socket, file) ++
+                  pushFile(address, socket, file) ++
+                    Stream.exec(Console[F].println(s"Pushing data done"))
           }
 
-    def get[F[_]: Temporal: Network: Console: Files](address: SocketAddress[Host], file: String): Stream[F, Unit] =
+
+    def get[F[_]: Concurrent: Network: Console: Files](address: SocketAddress[Host], file: String): Stream[F, Unit] =
       Stream.exec(Console[F].println(s"Trying to get a file from $address")) ++
         connect(address)
           .flatMap { socket =>
-            sendCommand(socket, "GET" + " " + file) ++
+            sendMessage(socket, "GET" + " " + file) ++
               Stream.exec(Console[F].println(s"Receiving data from $address")) ++
-                socket.reads
-                  .through(Files[F].writeAll(Path(clientFolderName + file))) ++
-                  Stream.exec(Console[F].println(s"Receive data done"))
+                getValidatedResponse(socket, file) ++
+                  getFile(address, socket, file) ++
+                    Stream.exec(Console[F].println(s"Receive data done"))
           }
 
-    def sendCommand[F[_]: Network](socket: Socket[F], command: String): Stream[F, Nothing] =
+    def sendMessage[F[_]: Network](socket: Socket[F], command: String): Stream[F, Nothing] =
       Stream(command)
         .interleave(Stream.constant("\n"))
         .through(text.utf8.encode)
         .through(socket.writes)
+
+
+    def pushFile[F[_]: Concurrent: Network: Console: Files](address: SocketAddress[Host], socket: Socket[F], file: String): Stream[F, Nothing] =
+      Stream.eval(Files[F].exists(Path(clientFolderName + file)))
+        .flatMap { fileExist =>
+          if (fileExist)
+            Stream.exec(Console[F].println(s"Pushing data to $address")) ++
+              Files[F].readAll(Path(clientFolderName + file))
+                .through(socket.writes)
+          else
+            Stream.raiseError(new FileNotFoundException(s"File: $file does not exist"))
+        }
+
+    def getFile[F[_]: Concurrent: Network: Console: Files](address: SocketAddress[Host], socket: Socket[F], file: String): Stream[F, Nothing] =
+        Stream.exec(Console[F].println(s"Receiving data from $address")) ++
+          socket.reads
+            .through(Files[F].writeAll(Path(clientFolderName + file)))
+
+    def getMessage[F[_]: Concurrent: Network: Console: Files]( socket: Socket[F], file: String): Stream[F, String] =
+      socket.reads
+        .through(text.utf8.decode)
+        .through(text.lines)
+        .head
+
+    def validateResponse[F[_]: Concurrent: Network: Console: Files]( response: String): Stream[F, Nothing] =
+      response.toUpperCase() match
+        case "OK" => Stream.empty
+        case _    => Stream.raiseError(new InvalidServerResponse(s"Server responded: $response"))
+
+    def getValidatedResponse[F[_]: Concurrent: Network: Console: Files](socket: Socket[F], file: String): Stream[F, Nothing] =
+      getMessage(socket, file)
+        .flatMap(validateResponse(_))
 
 
 
