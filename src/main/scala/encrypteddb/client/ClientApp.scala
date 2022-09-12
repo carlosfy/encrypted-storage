@@ -21,8 +21,6 @@ object ClientApp extends IOApp:
         case "PUSH" :: file :: _ => pushAction(file)
         case "GET" :: file :: _ => getAction(file)
         case _ => IO(())
-
-//      _ <- getAction
     } yield ()).as(ExitCode.Success)
 
 

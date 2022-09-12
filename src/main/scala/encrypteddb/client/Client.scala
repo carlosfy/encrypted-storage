@@ -4,7 +4,7 @@ package client
 import cats.effect.{Concurrent, MonadCancel}
 import cats.effect.std.Console
 import fs2.io.net.{Network, Socket}
-import fs2.{Chunk, Stream, text}
+import fs2.{Chunk, Pipe, Stream, text}
 import com.comcast.ip4s.*
 import fs2.io.file.{Files, Path}
 import cats.syntax.all.*
@@ -50,6 +50,8 @@ object Client:
           if (fileExist)
             Stream.exec(Console[F].println(s"Pushing data to $address")) ++
               Files[F].readAll(Path(clientFolderName + file))
+                .chunks
+                .flatMap(c => Stream.chunk(c))
                 .through(socket.writes)
           else
             Stream.raiseError(new FileNotFoundException(s"File: $file does not exist"))
