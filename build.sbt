@@ -9,7 +9,8 @@ lazy val encrypted = (project in file("."))
   .settings(
     name := "EncriptedStorage",
     libraryDependencies ++= Seq(
-        fs2WithIO
+      fs2WithIO,
+      "org.bouncycastle" % "bcprov-jdk16" % "1.46"
     )
   )
 
