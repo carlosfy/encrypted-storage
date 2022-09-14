@@ -1,19 +1,22 @@
 package encrypteddb
 package client
 
-import cats.effect.{Concurrent, MonadCancel}
+import cats.effect.{Async, Concurrent, MonadCancel}
 import cats.effect.std.Console
 import fs2.io.net.{Network, Socket}
-import fs2.{text, Chunk, Pipe, Stream}
+import fs2.{Chunk, Pipe, Stream, text}
 import com.comcast.ip4s.*
 import fs2.io.file.{Files, Path}
 import cats.syntax.all.*
 import encrypteddb.CommunMethods.{fileFromStream, getMessage, sendMessage, streamFromFile}
+import encrypteddb.CryptoLib.encryptStream
 import encrypteddb.client.Client.{clientFolderName, connect, getValidatedResponse}
 
 import java.io.FileNotFoundException
+import javax.crypto.spec.{IvParameterSpec, SecretKeySpec}
+import javax.crypto.{Cipher, SecretKey}
 
-abstract class Client[F[_]: Concurrent: Network: Console: Files](address: SocketAddress[Host]):
+abstract class Client[F[_]: Async: Network: Console: Files](address: SocketAddress[Host]):
   import Client._
 
   def push(file: String): F[Unit] =
@@ -42,7 +45,7 @@ abstract class Client[F[_]: Concurrent: Network: Console: Files](address: Socket
   def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing]
   def getStream(socket: Socket[F]): Stream[F, Byte]
 
-case class BasicClient[F[_]: Concurrent: Network: Console: Files](address: SocketAddress[Host])
+case class BasicClient[F[_]: Async: Network: Console: Files](address: SocketAddress[Host])
     extends Client[F](address) {
   import Client._
 
@@ -52,6 +55,25 @@ case class BasicClient[F[_]: Concurrent: Network: Console: Files](address: Socke
   def getStream(socket: Socket[F]): Stream[F, Byte] =
     socket.reads
 }
+
+case class EncryptedClient[F[_]: Async: Network: Console: Files](address: SocketAddress[Host], cipher: Cipher, key: SecretKeySpec, iv: IvParameterSpec)
+  extends Client[F](address) {
+  import Client._
+
+  def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing] =
+    cipher.init(Cipher.ENCRYPT_MODE, key, iv) // Not FP
+    stream
+      .through(encryptStream[F](_, cipher, 128))
+      .through(socket.writes)
+
+  def getStream(socket: Socket[F]): Stream[F, Byte] =
+    cipher.init(Cipher.DECRYPT_MODE, key, iv) // Not FP
+    socket.reads
+      .through(encryptStream[F](_, cipher, 128))
+
+}
+
+
 
 object Client:
 

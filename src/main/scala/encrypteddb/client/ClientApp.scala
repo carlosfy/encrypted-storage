@@ -15,6 +15,7 @@ object ClientApp extends IOApp:
   def run(args: List[String]): IO[ExitCode] =
     (for {
       _ <- IO(new File(Client.clientFolderName).mkdirs())
+      
       _ <- IO(setBouncyCastleProvider())
 
       address <- IO(SocketAddress(host"localhost", port"5555"))
@@ -26,7 +27,9 @@ object ClientApp extends IOApp:
       ivSpec  <- IO(new IvParameterSpec(iv))
       cipher  <- IO(Cipher.getInstance("AES/CBC/PKCS5Padding", "BC"))
 
-      client <- IO(BasicClient[IO](address))
+
+//      client <- IO(BasicClient[IO](address))
+      client <- IO(EncryptedClient[IO](address, cipher, keySpec, ivSpec))
 
       _ <- args match
         case "PUSH" :: file :: _ => client.push(file)

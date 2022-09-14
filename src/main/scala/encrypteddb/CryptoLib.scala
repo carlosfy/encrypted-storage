@@ -1,6 +1,7 @@
 package encrypteddb
 
 import cats.effect.*
+import cats.effect.std.Console
 import cats.implicits.*
 import encrypteddb.client.Client.clientFolderName
 import encrypteddb.server.Server.serverFolderName
@@ -27,10 +28,11 @@ object CryptoLib extends IOApp:
   def fileFromStream[F[_]: Files](s: Stream[F, Byte], file: String): Stream[F, Nothing] =
     s.through(Files[F].writeAll(Path(file)))
 
-  def encryptStream[F[_]: Async](s: Stream[F, Byte], cipher: Cipher, blocksPerChunk: Int): Stream[F, Byte] =
+  def encryptStream[F[_]: Async: Console](s: Stream[F, Byte], cipher: Cipher, blocksPerChunk: Int): Stream[F, Byte] =
     val chunkSize = blocksPerChunk * 8
     s.groupWithin(chunkSize, 500.millis)
       .flatMap { chunk =>
+        println(chunk.size)
         if (chunk.size < chunkSize)
           // This only happens if it is the last chunk of the stream
           Stream.chunk(Chunk.array(cipher.doFinal(chunk.toArray)))
@@ -42,7 +44,7 @@ object CryptoLib extends IOApp:
     for {
       _ <- IO(setBouncyCastleProvider())
 
-      fileName <- IO("clientFiles/meditate_monke.jpg")
+      fileName <- IO("serverFiles/meditate_monke.jpg")
 
       keySize        <- IO(128)
       key            <- IO(Hex.decode("01020304050607080910111213141516"))
@@ -53,11 +55,8 @@ object CryptoLib extends IOApp:
       blocksPerChunk <- IO(128)
       _              <- IO(cipher.init(Cipher.ENCRYPT_MODE, keySpec, ivSpec))
 
-      s = streamFromFile[IO](fileName)
-        .through(encryptStream(_, cipher, blocksPerChunk))
-        .through(fileFromStream[IO](_, "serverFiles/encryptedBouncy.jpg")) ++
-        Stream.eval(IO(cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec))) ++
-        streamFromFile[IO]("serverFiles/encryptedBouncy.jpg")
+      s = Stream.eval(IO(cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec))) ++
+        streamFromFile[IO]("serverFiles/meditate_monke.jpg")
           .through(encryptStream(_, cipher, blocksPerChunk))
           .through(fileFromStream(_, "clientFiles/decryptedBouncy.jpg"))
 

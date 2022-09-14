@@ -36,4 +36,4 @@ object CommunMethods:
 
   def fileFromStream[F[_]: Concurrent: Console: Files](s: Stream[F, Byte], path: String): Stream[F, Nothing] =
     Stream.exec(Console[F].println(s"Writing file on $path")) ++
-      s.through(Files[F].writeAll(Path(clientFolderName + path)))
+      s.through(Files[F].writeAll(Path(path)))
