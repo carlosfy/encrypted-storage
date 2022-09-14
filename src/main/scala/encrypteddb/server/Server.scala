@@ -7,7 +7,7 @@ import fs2.io.net.{Network, Socket}
 import com.comcast.ip4s.*
 import cats.effect.std.Console
 import cats.MonadError
-import encrypteddb.CommunMethods.{getMessage, sendMessage}
+import encrypteddb.CommunMethods.{getMessage, sendMessage, fileFromStream}
 import cats.syntax.all.*
 
 import java.io.{File, FileNotFoundException}
@@ -37,7 +37,7 @@ object Server:
     def handler[F[_]: Files: Network: Concurrent: Console](command: String, socket: Socket[F]): Stream[F, Nothing] =
       Stream.exec(Console[F].println(s"command received: $command")) ++ {
         command.split(" ").toList match
-          case "PUSH" :: file :: _ => handlePush(socket, file) //TODO: Change when the command include the destination
+          case "PUSH" :: file :: _ => handlePush(socket, file)
           case "GET" :: file :: _ => handleGet(socket, file)
           case _ => handleUnknownCommand(command)
       }
@@ -47,7 +47,7 @@ object Server:
         sendOk(socket) ++
           Stream.exec(Console[F].println("Ready to receive data")) ++
             socket.reads
-              .through(Files[F].writeAll(Path(serverFolderName + destination))) ++
+              .through(fileFromStream(_, (serverFolderName + destination))) ++
             Stream.exec(Console[F].println("Data received"))
 
     def handleGet[F[_]: Files: Network: Concurrent: Console](socket: Socket[F], origin: String): Stream[F, Nothing] =

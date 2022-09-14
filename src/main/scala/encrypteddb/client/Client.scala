@@ -8,9 +8,49 @@ import fs2.{Chunk, Pipe, Stream, text}
 import com.comcast.ip4s.*
 import fs2.io.file.{Files, Path}
 import cats.syntax.all.*
-import encrypteddb.CommunMethods.{getMessage, sendMessage}
+import encrypteddb.CommunMethods.{getMessage, sendMessage, fileFromStream, streamFromFile}
+import encrypteddb.client.Client.{clientFolderName, connect, getValidatedResponse}
 
 import java.io.FileNotFoundException
+
+abstract class Client[F[_]: Concurrent: Network: Console: Files](address: SocketAddress[Host]):
+  import Client._
+
+  def push(file: String): F[Unit] =
+    (Stream.exec(Console[F].println(s"Trying to push file $file to $address")) ++
+      connect(address)
+        .flatMap {socket =>
+          sendMessage(socket, "PUSH"+ " " + file) ++
+          getValidatedResponse(socket) ++
+          streamFromFile(clientFolderName + file)
+            .through(pushStream(_, socket)) ++
+            Stream.exec(Console[F].println(s"Pushing data done"))
+        }).compile.drain
+
+  def get(file: String): F[Unit] =
+    (Stream.exec(Console[F].println(s"Trying to get a file from $address")) ++
+      connect(address)
+        .flatMap { socket =>
+          sendMessage(socket, "GET" + " " + file) ++
+            Stream.exec(Console[F].println(s"Receiving data from $address")) ++
+            getValidatedResponse(socket) ++
+            getStream(socket)
+              .through(fileFromStream(_, clientFolderName + file)) ++
+            Stream.exec(Console[F].println(s"Receive data done"))
+        }).compile.drain
+
+  def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing]
+  def getStream(socket: Socket[F]): Stream[F, Byte]
+
+case class BasicClient[F[_]: Concurrent: Network: Console: Files](address: SocketAddress[Host]) extends Client[F](address) {
+  import Client._
+
+  def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing] =
+    stream.through(socket.writes)
+
+  def getStream(socket: Socket[F]): Stream[F, Byte] =
+    socket.reads
+}
 
 object Client:
 
@@ -18,50 +58,9 @@ object Client:
 
     case class InvalidServerResponse(str: String) extends Exception(str)
 
-
     def connect[F[_]: Concurrent: Network:Console](address: SocketAddress[Host]): Stream[F, Socket[F]] =
       Stream.exec(Console[F].println(s"Trying to connect to $address")) ++
       Stream.resource(Network[F].client(address))
-
-    def push[F[_]: Concurrent: Network: Console: Files](address: SocketAddress[Host], file: String): Stream[F, Unit] =
-      Stream.exec(Console[F].println(s"Trying to push file $file to $address")) ++
-        connect(address)
-          .flatMap { socket =>
-            sendMessage(socket, "PUSH"+ " " + file) ++
-                getValidatedResponse(socket) ++
-                  pushFile(address, socket, file) ++
-                    Stream.exec(Console[F].println(s"Pushing data done"))
-          }
-
-    def get[F[_]: Concurrent: Network: Console: Files](address: SocketAddress[Host], file: String): Stream[F, Unit] =
-      Stream.exec(Console[F].println(s"Trying to get a file from $address")) ++
-        connect(address)
-          .flatMap { socket =>
-            sendMessage(socket, "GET" + " " + file) ++
-              Stream.exec(Console[F].println(s"Receiving data from $address")) ++
-                getValidatedResponse(socket) ++
-                  getFile(address, socket, file) ++
-                    Stream.exec(Console[F].println(s"Receive data done"))
-          }
-
-    def pushFile[F[_]: Concurrent: Network: Console: Files](address: SocketAddress[Host], socket: Socket[F], file: String): Stream[F, Nothing] =
-      Stream.eval(Files[F].exists(Path(clientFolderName + file)))
-        .flatMap { fileExist =>
-          if (fileExist)
-            Stream.exec(Console[F].println(s"Pushing data to $address")) ++
-              Files[F].readAll(Path(clientFolderName + file))
-                .chunks
-                .flatMap(c => Stream.chunk(c))
-                .through(socket.writes)
-          else
-            Stream.raiseError(new FileNotFoundException(s"File: $file does not exist"))
-        }
-
-    def getFile[F[_]: Concurrent: Network: Console: Files](address: SocketAddress[Host], socket: Socket[F], file: String): Stream[F, Nothing] =
-        Stream.exec(Console[F].println(s"Receiving data from $address")) ++
-          socket.reads
-            .through(Files[F].writeAll(Path(clientFolderName + file)))
-
 
     def validateResponse[F[_]: Concurrent: Network: Console: Files]( response: String): Stream[F, Nothing] =
       response.toUpperCase() match
@@ -71,6 +70,7 @@ object Client:
     def getValidatedResponse[F[_]: Concurrent: Network: Console: Files](socket: Socket[F]): Stream[F, Nothing] =
       getMessage(socket)
         .flatMap(validateResponse(_))
+
 
 
 
