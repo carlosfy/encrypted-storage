@@ -1,13 +1,14 @@
 package encrypteddb
 
-import cats.effect.Concurrent
+import cats.effect.{Async, Concurrent}
 import cats.effect.std.Console
 import encrypteddb.client.Client.clientFolderName
 import fs2.io.file.{Files, Path}
 import fs2.io.net.{Network, Socket}
-import fs2.{text, Stream}
+import fs2.{Stream, text}
 
 import java.io.FileNotFoundException
+import scala.concurrent.duration.*
 
 object CommunMethods:
 
@@ -37,3 +38,11 @@ object CommunMethods:
   def fileFromStream[F[_]: Concurrent: Console: Files](s: Stream[F, Byte], path: String): Stream[F, Nothing] =
     Stream.exec(Console[F].println(s"Writing file on $path")) ++
       s.through(Files[F].writeAll(Path(path)))
+
+  def showChunks[F[_]: Async: Console, O](in: Stream[F, O], chunkSize: Int): Stream[F, O] =
+    in.groupWithin(chunkSize, 300.millis)
+      .flatMap{chunk =>
+        println(chunk.size)
+        println(chunk)
+        Stream.chunk(chunk)
+      }

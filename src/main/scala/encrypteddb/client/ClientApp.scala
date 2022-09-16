@@ -28,8 +28,8 @@ object ClientApp extends IOApp:
       cipher  <- IO(Cipher.getInstance("AES/CBC/PKCS5Padding", "BC"))
 
 
-//      client <- IO(BasicClient[IO](address))
-      client <- IO(EncryptedClient[IO](address, cipher, keySpec, ivSpec))
+      client <- IO(BasicClient[IO](address))
+//      client <- IO(EncryptedClient[IO](address, cipher, keySpec, ivSpec))
 
       _ <- args match
         case "PUSH" :: file :: _ => client.push(file)
