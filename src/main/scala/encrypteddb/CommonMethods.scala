@@ -45,3 +45,6 @@ object CommonMethods:
         println(chunk)
         Stream.chunk(chunk)
       }
+
+  def streamPrint[F[_]: Console](message: String): Stream[F, Nothing] =
+    Stream.exec(Console[F].println(message))

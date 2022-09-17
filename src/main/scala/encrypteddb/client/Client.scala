@@ -19,28 +19,28 @@ abstract class Client[F[_]: Async: Network: Console: Files](address: SocketAddre
   import Client._
 
   def push(file: String): F[Unit] =
-    (Stream.exec(Console[F].println(s"Trying to push file $file to $address")) ++
+    (streamPrint(s"Trying to push file $file to $address") ++
       connect(address)
         .flatMap { socket =>
           sendMessage(socket, "PUSH" + " " + file) ++
             getValidatedResponse(socket) ++
             streamFromFile(clientFolderName + file)
               .through(pushStream(_, socket)) ++
-            Stream.exec(Console[F].println(s"Pushing file done"))
+            streamPrint(s"Pushing file done")
         }).compile.drain
 
   def get(file: String): F[Unit] =
-    (Stream.exec(Console[F].println(s"Trying to get a file from $address")) ++
+    (streamPrint(s"Trying to get a file from $address") ++
       connect(address)
         .flatMap { socket =>
           sendMessage(socket, "GET" + " " + file) ++
-            Stream.exec(Console[F].println(s"Waiting for response $address")) ++
+            streamPrint(s"Waiting for response $address") ++
             getValidatedResponse(socket) ++
             sendOk(socket) ++
-            Stream.exec(Console[F].println(s"Receiving data from $address")) ++
+            streamPrint(s"Receiving data from $address") ++
             getStream(socket)
               .through(fileFromStream(_, clientFolderName + file)) ++
-            Stream.exec(Console[F].println(s"Receive file done"))
+            streamPrint(s"Receive file done")
         }).compile.drain
 
   def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing]
