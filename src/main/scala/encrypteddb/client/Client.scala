@@ -8,9 +8,8 @@ import fs2.{text, Chunk, Pipe, Stream}
 import com.comcast.ip4s.*
 import fs2.io.file.{Files, Path}
 import cats.syntax.all.*
-import encrypteddb.CommunMethods._
+import encrypteddb.CommonMethods._
 import encrypteddb.CryptoLib.encryptStream
-import encrypteddb.client.Client.{clientFolderName, connect, getValidatedResponse}
 
 import java.io.FileNotFoundException
 import javax.crypto.spec.{IvParameterSpec, SecretKeySpec}

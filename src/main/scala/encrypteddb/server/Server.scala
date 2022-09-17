@@ -7,7 +7,7 @@ import fs2.io.net.{Network, Socket}
 import com.comcast.ip4s.*
 import cats.effect.std.Console
 import cats.MonadError
-import encrypteddb.CommunMethods._
+import encrypteddb.CommonMethods._
 import cats.syntax.all.*
 
 import java.io.{File, FileNotFoundException}
