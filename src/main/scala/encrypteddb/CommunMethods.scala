@@ -2,46 +2,45 @@ package encrypteddb
 
 import cats.effect.{Async, Concurrent}
 import cats.effect.std.Console
-import encrypteddb.client.Client.clientFolderName
 import fs2.io.file.{Files, Path}
 import fs2.io.net.{Network, Socket}
-import fs2.{Stream, text}
+import fs2.{text, Chunk, Stream}
 
 import java.io.FileNotFoundException
 import scala.concurrent.duration.*
 
 object CommunMethods:
 
-  def sendMessage[F[_]: Network](socket: Socket[F], command: String): Stream[F, Nothing] =
-    Stream(command)
-      .interleave(Stream.constant("\n"))
-      .through(text.utf8.encode)
-      .through(socket.writes)
+  def sendMessage[F[_]: Network](socket: Socket[F], command: String): Stream[F, Unit] =
+    Stream.eval(socket.write(Chunk.array(command.getBytes())))
 
-  def getMessage[F[_]: Concurrent: Network: Console: Files](socket: Socket[F]): Stream[F, String] =
-    socket.reads
-      .through(text.utf8.decode)
-      .through(text.lines)
-      .head
+  def sendOk[F[_]: Files: Network: Concurrent: Console](socket: Socket[F]): Stream[F, Unit] =
+    sendMessage(socket, "OK")
 
-  def streamFromFile[F[_]: Concurrent: Network: Console: Files](path: String): Stream[F, Byte] =
+  def getMessage[F[_]: Async: Network](socket: Socket[F]): Stream[F, String] =
     Stream
-      .eval(Files[F].exists(Path(path)))
-      .flatMap { fileExist =>
-        if (fileExist)
-          Stream.exec(Console[F].println(s"Reading from file: $path")) ++
-            Files[F].readAll(Path(path))
-        else
-          Stream.raiseError(new FileNotFoundException(s"File: $path does not exist"))
+      .eval(socket.read(100))
+      .flatMap {
+        case Some(chunk) => Stream.chunk(chunk)
+        case _           => Stream.empty
       }
+      .through(text.utf8.decode)
+
+  def streamFromFile[F[_]: Async: Console: Files](path: String): Stream[F, Byte] =
+    Stream.exec(Console[F].println(s"Reading from file: $path")) ++
+      Files[F].readAll(Path(path))
+
+  def sendFile[F[_]: Async: Network: Console: Files](socket: Socket[F], file: String): Stream[F, Unit] =
+    streamFromFile(file)
+      .through(socket.writes)
 
   def fileFromStream[F[_]: Concurrent: Console: Files](s: Stream[F, Byte], path: String): Stream[F, Nothing] =
     Stream.exec(Console[F].println(s"Writing file on $path")) ++
       s.through(Files[F].writeAll(Path(path)))
 
-  def showChunks[F[_]: Async: Console, O](in: Stream[F, O], chunkSize: Int): Stream[F, O] =
+  def showChunks[F[_]: Async: Console, O](chunkSize: Int)(in: Stream[F, O]): Stream[F, O] =
     in.groupWithin(chunkSize, 300.millis)
-      .flatMap{chunk =>
+      .flatMap { chunk =>
         println(chunk.size)
         println(chunk)
         Stream.chunk(chunk)

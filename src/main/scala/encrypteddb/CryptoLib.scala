@@ -32,7 +32,6 @@ object CryptoLib extends IOApp:
     val chunkSize = blocksPerChunk * 8
     s.groupWithin(chunkSize, 500.millis)
       .flatMap { chunk =>
-        println(chunk.size)
         if (chunk.size < chunkSize)
           // This only happens if it is the last chunk of the stream
           Stream.chunk(Chunk.array(cipher.doFinal(chunk.toArray)))
@@ -43,8 +42,6 @@ object CryptoLib extends IOApp:
   def run(args: List[String]): IO[ExitCode] =
     for {
       _ <- IO(setBouncyCastleProvider())
-
-      fileName <- IO("serverFiles/meditate_monke.jpg")
 
       keySize        <- IO(128)
       key            <- IO(Hex.decode("01020304050607080910111213141516"))

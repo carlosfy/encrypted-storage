@@ -4,11 +4,11 @@ package client
 import cats.effect.{Async, Concurrent, MonadCancel}
 import cats.effect.std.Console
 import fs2.io.net.{Network, Socket}
-import fs2.{Chunk, Pipe, Stream, text}
+import fs2.{text, Chunk, Pipe, Stream}
 import com.comcast.ip4s.*
 import fs2.io.file.{Files, Path}
 import cats.syntax.all.*
-import encrypteddb.CommunMethods.{fileFromStream, getMessage, sendMessage, streamFromFile}
+import encrypteddb.CommunMethods._
 import encrypteddb.CryptoLib.encryptStream
 import encrypteddb.client.Client.{clientFolderName, connect, getValidatedResponse}
 
@@ -27,7 +27,7 @@ abstract class Client[F[_]: Async: Network: Console: Files](address: SocketAddre
             getValidatedResponse(socket) ++
             streamFromFile(clientFolderName + file)
               .through(pushStream(_, socket)) ++
-            Stream.exec(Console[F].println(s"Pushing data done"))
+            Stream.exec(Console[F].println(s"Pushing file done"))
         }).compile.drain
 
   def get(file: String): F[Unit] =
@@ -35,29 +35,49 @@ abstract class Client[F[_]: Async: Network: Console: Files](address: SocketAddre
       connect(address)
         .flatMap { socket =>
           sendMessage(socket, "GET" + " " + file) ++
-            Stream.exec(Console[F].println(s"Receiving data from $address")) ++
+            Stream.exec(Console[F].println(s"Waiting for response $address")) ++
             getValidatedResponse(socket) ++
+            sendOk(socket) ++
+            Stream.exec(Console[F].println(s"Receiving data from $address")) ++
             getStream(socket)
               .through(fileFromStream(_, clientFolderName + file)) ++
-            Stream.exec(Console[F].println(s"Receive data done"))
+            Stream.exec(Console[F].println(s"Receive file done"))
         }).compile.drain
 
   def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing]
   def getStream(socket: Socket[F]): Stream[F, Byte]
 
-case class BasicClient[F[_]: Async: Network: Console: Files](address: SocketAddress[Host])
-    extends Client[F](address) {
+case class BasicClient[F[_]: Async: Network: Console: Files](address: SocketAddress[Host]) extends Client[F](address) {
   import Client._
 
   def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing] =
-    stream.through(socket.writes)
+    stream
+      .through(socket.writes)
 
   def getStream(socket: Socket[F]): Stream[F, Byte] =
     socket.reads
 }
 
-case class EncryptedClient[F[_]: Async: Network: Console: Files](address: SocketAddress[Host], cipher: Cipher, key: SecretKeySpec, iv: IvParameterSpec)
-  extends Client[F](address) {
+case class DebugClient[F[_]: Async: Network: Console: Files](address: SocketAddress[Host], chunkSize: Int)
+    extends Client[F](address) {
+  import Client._
+
+  def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing] =
+    stream
+      .through(showChunks(chunkSize))
+      .through(socket.writes)
+
+  def getStream(socket: Socket[F]): Stream[F, Byte] =
+    socket.reads
+      .through(showChunks(chunkSize))
+}
+
+case class EncryptedClient[F[_]: Async: Network: Console: Files](
+    address: SocketAddress[Host],
+    cipher: Cipher,
+    key: SecretKeySpec,
+    iv: IvParameterSpec
+) extends Client[F](address) {
   import Client._
 
   def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing] =
@@ -73,23 +93,21 @@ case class EncryptedClient[F[_]: Async: Network: Console: Files](address: Socket
 
 }
 
-
-
 object Client:
 
   def clientFolderName = "clientFiles/"
 
   case class InvalidServerResponse(str: String) extends Exception(str)
 
-  def connect[F[_]: Concurrent: Network: Console](address: SocketAddress[Host]): Stream[F, Socket[F]] =
+  def connect[F[_]: Async: Network: Console](address: SocketAddress[Host]): Stream[F, Socket[F]] =
     Stream.exec(Console[F].println(s"Trying to connect to $address")) ++
       Stream.resource(Network[F].client(address))
 
-  def validateResponse[F[_]: Concurrent: Network: Console: Files](response: String): Stream[F, Nothing] =
+  def validateResponse[F[_]: Async: Network: Console: Files](response: String): Stream[F, Unit] =
     response.toUpperCase() match
-      case "OK" => Stream.empty
+      case "OK" => Stream.eval(Async[F].pure(()))
       case _    => Stream.raiseError(InvalidServerResponse(s"Reponse: $response"))
 
-  def getValidatedResponse[F[_]: Concurrent: Network: Console: Files](socket: Socket[F]): Stream[F, Nothing] =
+  def getValidatedResponse[F[_]: Async: Network: Console: Files](socket: Socket[F]): Stream[F, Unit] =
     getMessage(socket)
       .flatMap(validateResponse(_))

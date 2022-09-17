@@ -2,86 +2,130 @@ package encrypteddb.server
 
 import fs2.io.file.{Files, Path}
 import cats.effect.{Async, Concurrent, Temporal}
-import fs2.{Stream, text}
+import fs2.{text, Stream}
 import fs2.io.net.{Network, Socket}
 import com.comcast.ip4s.*
 import cats.effect.std.Console
 import cats.MonadError
-import encrypteddb.CommunMethods.{fileFromStream, getMessage, sendMessage, streamFromFile}
+import encrypteddb.CommunMethods._
 import cats.syntax.all.*
 
 import java.io.{File, FileNotFoundException}
 import scala.concurrent.duration.*
+import cats.effect.std.UUIDGen
+
+import java.util.UUID
 
 object Server:
 
   def serverFolderName = "serverFiles/"
 
+  case class InvalidClientResponse(response: String) extends Exception(response)
+  case class UnknownCommand(command: String)         extends Exception(command)
+
+  case class Connected[F[_]](
+      id: UUID,
+      socket: Socket[F]
+  )
+  object Connected:
+    def apply[F[_]: Async: UUIDGen](socket: Socket[F]): F[Connected[F]] =
+      for {
+        id <- UUIDGen[F].randomUUID
+      } yield Connected(id, socket)
+
+  // Server logic
+
   def startController[F[_]: Files: Network: Async: Console](port: Port): Stream[F, Nothing] =
     Stream.exec(Console[F].println(s"Listening on port: $port")) ++
       handleUncomingConnexions(port)
 
-  def handleUncomingConnexions[F[_]: Files: Network: Async: Console](port: Port): Stream[F, Nothing] =
+  def handleUncomingConnexions[F[_]: Files: Network: Async: Console: UUIDGen](port: Port): Stream[F, Nothing] =
     Network[F]
       .server(port = Some(port))
       .map { client =>
-        Stream.exec(Console[F].println("New client connected")) ++
-          handleOneConnexion(client) ++
-          Stream.exec(Console[F].println("Client Disconnect"))
-
+        Stream
+          .bracket(startConnection(client))(endConnection)
+          .flatMap(handleClient)
+          .scope
+          .handleErrorWith { error =>
+            sendError(client, error.getMessage) ++
+              Stream.eval(client.endOfInput)
+          }
+          .drain
       }
-      .parJoin(10)
+      .parJoinUnbounded
 
-  def handleOneConnexion[F[_]: Files: Network: Async: Console](socket: Socket[F]): Stream[F, Nothing] =
-    Stream.exec(Console[F].println("Handling one connexion")) ++
-      getMessage(socket)
-        .flatMap(command => handler(command, socket)) ++
-      Stream.exec(Console[F].println("Handled"))
+  def startConnection[F[_]: Async: UUIDGen: Console](socket: Socket[F]): F[Connected[F]] =
+    Connected[F](socket).flatTap(cClient => Console[F].println(s"New Client connected: ${cClient.id}"))
 
-  def handler[F[_]: Files: Network: Async: Console](command: String, socket: Socket[F]): Stream[F, Nothing] =
-    Stream.exec(Console[F].println(s"command received: $command")) ++ {
+  def endConnection[F[_]: Async: Console](client: Connected[F]): F[Unit] =
+    Console[F].println(s"Client disconnected: ${client.id}")
+
+  def handleClient[F[_]: Files: Network: Async: Console](client: Connected[F]): Stream[F, Unit] =
+    Stream.exec(Console[F].println(s"[${client.id}] Handling one connexion ")) ++
+      getMessage(client.socket)
+        .flatMap(command => handler(command, client)) ++
+      Stream.exec(Console[F].println(s"[${client.id}] Handled"))
+
+  // Controller
+  // Routes
+
+  def handler[F[_]: Files: Network: Async: Console](command: String, client: Connected[F]): Stream[F, Unit] =
+    Stream.exec(Console[F].println(s"[${client.id}] Received command: $command")) ++ {
       command.split(" ").toList match
-        case "PUSH" :: file :: _ => handlePush(socket, file)
-        case "GET" :: file :: _  => handleGet(socket, file)
-        case _                   => handleUnknownCommand(command)
+        case "PUSH" :: file :: _ => handlePush(client, file)
+        case "GET" :: file :: _  => handleGet(client, file)
+        case _                   => handleUnknownCommand(client, command)
     }
 
+  // Handlers
+
   def handlePush[F[_]: Files: Network: Async: Console](
-      socket: Socket[F],
+      client: Connected[F],
       destination: String
-  ): Stream[F, Nothing] =
-    Stream.exec(Console[F].println("Handling PUSH")) ++
-      sendOk(socket) ++
-      Stream.exec(Console[F].println("Ready to receive data")) ++
-      socket.reads
+  ): Stream[F, Unit] =
+    Stream.eval(Console[F].println(s"[${client.id}] Handling PUSH")) ++
+      sendOkConnected(client) ++
+      Stream.exec(Console[F].println(s"[${client.id}] Ready to receive data ")) ++
+      client.socket.reads
         .through(fileFromStream(_, (serverFolderName + destination))) ++
-      Stream.exec(Console[F].println("Data received"))
+      Stream.exec(Console[F].println(s"[${client.id}] Data received"))
 
-  def handleGet[F[_]: Files: Network: Async: Console](socket: Socket[F], origin: String): Stream[F, Nothing] =
-    Stream.exec(Console[F].println("Handling GET")) ++
-      pushFile(socket, origin) ++
-      Stream.exec(Console[F].println(s"Sending data done"))
+  def handleGet[F[_]: Files: Network: Async: Console](client: Connected[F], file: String): Stream[F, Unit] =
+    Stream.exec(Console[F].println(s"[${client.id}] Handling GET")) ++
+      sendOkConnected(client) ++
+      getValidatedResponse(client) ++
+      sendFileConnected(client, file) ++
+      Stream.exec(Console[F].println(s"[${client.id}] Sending file: $file"))
 
-  def handleUnknownCommand[F[_]: Console: Concurrent](command: String): Stream[F, Nothing] =
-    Stream.eval(Console[F].println(s"Received unknown command: $command")) >>
-      Stream.raiseError(new Error("Unknown command"))
+  def handleUnknownCommand[F[_]: Console: Concurrent](client: Connected[F], command: String): Stream[F, Nothing] =
+    Stream.raiseError(UnknownCommand(command))
 
-  def pushFile[F[_]: Concurrent: Network: Console: Files](socket: Socket[F], file: String): Stream[F, Nothing] =
-    Stream
-      .eval(Files[F].exists(Path(serverFolderName + file)))
-      .flatMap { fileExist =>
-        if (fileExist)
-          sendOk(socket) ++
-            Stream.exec(Console[F].println(s"Pushing data")) ++
-            Files[F]
-              .readAll(Path(serverFolderName + file))
-              .through(socket.writes)
-        else
-          sendError(socket)
-      }
+  // Network Primitives
 
-  def sendOk[F[_]: Files: Network: Concurrent: Console](socket: Socket[F]): Stream[F, Nothing] =
-    sendMessage(socket, "OK")
+  def sendFileConnected[F[_]: Async: Network: Console: Files](client: Connected[F], file: String): Stream[F, Unit] =
+    Stream.exec(Console[F].println(s"[${client.id}] Sending file: $file")) ++
+      sendFile(client.socket, serverFolderName + file)
 
-  def sendError[F[_]: Files: Network: Concurrent: Console](socket: Socket[F]): Stream[F, Nothing] =
-    sendMessage(socket, "Error: FileNotFound")
+  // Message Primitives
+
+  def sendMessageConnected[F[_]: Network: Concurrent](client: Connected[F], message: String): Stream[F, Unit] =
+    sendMessage(client.socket, message)
+
+  def getMessageConnected[F[_]: Network: Async](client: Connected[F]): Stream[F, String] =
+    getMessage(client.socket)
+
+  def sendError[F[_]: Files: Network: Concurrent](socket: Socket[F], message: String): Stream[F, Unit] =
+    sendMessage(socket, message)
+
+  def sendOkConnected[F[_]: Network: Concurrent](client: Connected[F]): Stream[F, Unit] =
+    sendMessageConnected(client, "OK")
+
+  def validateResponse[F[_]: Async: Network: Console: Files](response: String): Stream[F, Unit] =
+    response.toUpperCase() match
+      case "OK"     => Stream.empty
+      case response => Stream.raiseError(new InvalidClientResponse(response))
+
+  def getValidatedResponse[F[_]: Async: Network: Console: Files](client: Connected[F]): Stream[F, Unit] =
+    getMessageConnected(client)
+      .flatMap(validateResponse(_))
