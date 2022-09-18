@@ -3,7 +3,7 @@ package encrypteddb.client
 import cats.effect.{ExitCode, IO, IOApp}
 import com.comcast.ip4s.Literals.{host, port}
 import com.comcast.ip4s.*
-import encrypteddb.CryptoLib.setBouncyCastleProvider
+import encrypteddb.CryptoLib.{getPrivateKey, setBouncyCastleProvider}
 import org.bouncycastle.util.encoders.Hex
 
 import java.io.File
@@ -20,12 +20,11 @@ object ClientApp extends IOApp:
 
       address <- IO(SocketAddress(host"localhost", port"5555"))
 
-      keySize <- IO(128)
-      key     <- IO(Hex.decode("01020304050607080910111213141516"))
-      keySpec <- IO(new SecretKeySpec(key, 0, keySize / 8, "AES"))
-      iv      <- IO(Hex.decode("01020304050607080910111213141516"))
-      ivSpec  <- IO(new IvParameterSpec(iv))
-      cipher  <- IO(Cipher.getInstance("AES/CBC/PKCS5Padding", "BC"))
+      keySpec <- IO(getPrivateKey(new File("src/main/resources/client/savedKey.pem")))
+
+      iv     <- IO(Hex.decode("01020304050607080910111213141516"))
+      ivSpec <- IO(new IvParameterSpec(iv))
+      cipher <- IO(Cipher.getInstance("AES/CBC/PKCS5Padding", "BC"))
 
 //      client <- IO(BasicClient[IO](address))
 //      client <- IO(DebugClient[IO](address, 20))

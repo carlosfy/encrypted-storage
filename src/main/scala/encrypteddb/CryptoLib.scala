@@ -6,16 +6,19 @@ import cats.implicits.*
 import encrypteddb.client.Client.clientFolderName
 import encrypteddb.server.Server.serverFolderName
 import fs2.io.file.{Files, Path}
-import fs2.{Chunk, Stream}
+import fs2.{text, Chunk, Stream}
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import org.bouncycastle.openssl.jcajce.JcaPEMWriter
 import org.bouncycastle.util.encoders.Hex
+import org.bouncycastle.util.io.pem.{PemObject, PemReader}
 
-import java.security.{SecureRandom, Security}
+import java.io.{File, FileReader, StringWriter}
+import java.security.Security
 import javax.crypto.*
-import javax.crypto.spec.{IvParameterSpec, SecretKeySpec}
+import javax.crypto.spec.SecretKeySpec
 import scala.concurrent.duration.*
 
-object CryptoLib extends IOApp:
+object CryptoLib:
 
   def setBouncyCastleProvider(): Unit =
     Security.addProvider(new BouncyCastleProvider)
@@ -39,23 +42,20 @@ object CryptoLib extends IOApp:
           Stream.chunk(Chunk.array(cipher.update(chunk.toArray)))
       }
 
-  def run(args: List[String]): IO[ExitCode] =
-    for {
-      _ <- IO(setBouncyCastleProvider())
+  def privateKeyToString(privateKey: SecretKeySpec): String =
+    val sWrt      = new StringWriter()
+    val pemWriter = new JcaPEMWriter(sWrt)
 
-      keySize        <- IO(128)
-      key            <- IO(Hex.decode("01020304050607080910111213141516"))
-      keySpec        <- IO(new SecretKeySpec(key, 0, keySize / 8, "AES"))
-      iv             <- IO(Hex.decode("01020304050607080910111213141516"))
-      ivSpec         <- IO(new IvParameterSpec(iv))
-      cipher         <- IO(Cipher.getInstance("AES/CBC/PKCS5Padding", "BC"))
-      blocksPerChunk <- IO(128)
-      _              <- IO(cipher.init(Cipher.ENCRYPT_MODE, keySpec, ivSpec))
+    pemWriter.writeObject(new PemObject("KEY", privateKey.getEncoded))
+    pemWriter.close()
 
-      s = Stream.eval(IO(cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec))) ++
-        streamFromFile[IO]("serverFiles/meditate_monke.jpg")
-          .through(encryptStream(_, cipher, blocksPerChunk))
-          .through(fileFromStream(_, "clientFiles/decryptedBouncy.jpg"))
+    sWrt.toString
 
-      _ <- s.compile.drain
-    } yield ExitCode.Success
+  def getPrivateKey(file: File): SecretKeySpec =
+    val keyReader = new FileReader(file)
+    val pemReader = new PemReader(keyReader)
+
+    val pemObject = pemReader.readPemObject()
+    val content   = pemObject.getContent
+
+    new SecretKeySpec(content, 0, 32, "AES")
