@@ -5,7 +5,7 @@ import cats.effect.{Async, Concurrent, Temporal}
 import fs2.{text, Stream}
 import fs2.io.net.{Network, Socket}
 import com.comcast.ip4s.*
-import cats.effect.std.Console
+import encrypteddb.Console
 import cats.MonadError
 import encrypteddb.CommonMethods._
 import cats.syntax.all.*

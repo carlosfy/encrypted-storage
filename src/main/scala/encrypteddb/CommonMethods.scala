@@ -1,7 +1,6 @@
 package encrypteddb
 
 import cats.effect.{Async, Concurrent}
-import cats.effect.std.Console
 import fs2.io.file.{Files, Path}
 import fs2.io.net.{Network, Socket}
 import fs2.{text, Chunk, Stream}

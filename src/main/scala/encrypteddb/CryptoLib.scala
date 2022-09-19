@@ -1,7 +1,6 @@
 package encrypteddb
 
 import cats.effect.*
-import cats.effect.std.Console
 import cats.implicits.*
 import encrypteddb.client.Client.clientFolderName
 import encrypteddb.server.Server.serverFolderName
@@ -31,7 +30,7 @@ object CryptoLib:
   def fileFromStream[F[_]: Files](s: Stream[F, Byte], file: String): Stream[F, Nothing] =
     s.through(Files[F].writeAll(Path(file)))
 
-  def encryptStream[F[_]: Async: Console](s: Stream[F, Byte], cipher: Cipher, blocksPerChunk: Int): Stream[F, Byte] =
+  def encryptStream[F[_]: Async](s: Stream[F, Byte], cipher: Cipher, blocksPerChunk: Int): Stream[F, Byte] =
     val chunkSize = blocksPerChunk * 8
     s.groupWithin(chunkSize, 500.millis)
       .flatMap { chunk =>

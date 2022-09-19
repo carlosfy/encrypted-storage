@@ -2,21 +2,36 @@ package encrypteddb
 package client
 
 import cats.effect.{Async, Concurrent, MonadCancel}
-import cats.effect.std.Console
-import fs2.io.net.{Network, Socket}
-import fs2.{text, Chunk, Pipe, Stream}
-import com.comcast.ip4s.*
-import fs2.io.file.{Files, Path}
 import cats.syntax.all.*
-import encrypteddb.CommonMethods._
+import com.comcast.ip4s.*
+import encrypteddb.CommonMethods.*
+import encrypteddb.Console
 import encrypteddb.CryptoLib.encryptStream
+import fs2.io.file.{Files, Path}
+import fs2.io.net.{Network, Socket}
+import fs2.{Chunk, Pipe, Stream}
 
 import java.io.FileNotFoundException
 import javax.crypto.spec.{IvParameterSpec, SecretKeySpec}
 import javax.crypto.{Cipher, SecretKey}
 
 abstract class Client[F[_]: Async: Network: Console: Files](address: SocketAddress[Host]):
-  import Client._
+  import Client.*
+
+  def start: F[Unit] =
+    for {
+      _ <- handleCommand
+      _ <- start
+    } yield ()
+
+  def handleCommand: F[Unit] =
+    for {
+      command <- (Console[F].readLine("Enter Command > "))
+      _       <- command.getOrElse("").split(" ").toList match
+        case "PUSH" :: (file: String) :: _ => push(file)
+        case "GET" :: (file: String) :: _  => get(file)
+        case _                   => Async[F].pure(())
+      } yield ()
 
   def push(file: String): F[Unit] =
     (streamPrint(s"Trying to push file $file to $address") ++
@@ -46,8 +61,8 @@ abstract class Client[F[_]: Async: Network: Console: Files](address: SocketAddre
   def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing]
   def getStream(socket: Socket[F]): Stream[F, Byte]
 
-case class BasicClient[F[_]: Async: Network: Console: Files](address: SocketAddress[Host]) extends Client[F](address) {
-  import Client._
+case class BasicClient[F[_]: Async: Network:  Console: Files](address: SocketAddress[Host]) extends Client[F](address) {
+  import Client.*
 
   def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing] =
     stream
@@ -57,9 +72,9 @@ case class BasicClient[F[_]: Async: Network: Console: Files](address: SocketAddr
     socket.reads
 }
 
-case class DebugClient[F[_]: Async: Network: Console: Files](address: SocketAddress[Host], chunkSize: Int)
+case class DebugClient[F[_]: Async: Network:  Console: Files](address: SocketAddress[Host], chunkSize: Int)
     extends Client[F](address) {
-  import Client._
+  import Client.*
 
   def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing] =
     stream
@@ -77,7 +92,7 @@ case class EncryptedClient[F[_]: Async: Network: Console: Files](
     key: SecretKeySpec,
     iv: IvParameterSpec
 ) extends Client[F](address) {
-  import Client._
+  import Client.*
 
   def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing] =
     cipher.init(Cipher.ENCRYPT_MODE, key, iv) // Not FP
