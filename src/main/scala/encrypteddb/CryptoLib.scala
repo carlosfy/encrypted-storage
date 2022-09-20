@@ -60,23 +60,29 @@ object CryptoLib:
 
     new SecretKeySpec(content, 0, 32, "AES")
 
-  def fromKeyToKeyStore(key: SecretKeySpec, alias: String, password: String): Array[Byte] =
-    val keyStore = KeyStore.getInstance("BCFKS", "BC")
-    keyStore.load(null, null)
-    keyStore.setKeyEntry(alias, key, password.toCharArray, null)
-    val bOut = new ByteArrayOutputStream()
-    keyStore.store(bOut, password.toCharArray)
-    bOut.toByteArray
+  def fromKeyToKeyStore(key: SecretKeySpec, alias: String, password: String, fileName: String): Array[Byte] =
+    val keyStoreFile = new File(fileName)
+    val keyStore     = KeyStore.getInstance("BCFKS", "BC")
+    if (keyStoreFile.exists())
+      val inputStream: InputStream = new FileInputStream(keyStoreFile)
+      keyStore.load(inputStream, "keyStoreKey".toCharArray)
+    else keyStore.load(null, null)
+    if (keyStore.containsAlias(alias)) throw Error(s"The username $alias already exists")
+    else
+      keyStore.setKeyEntry(alias, key, password.toCharArray, null)
+      val bOut = new ByteArrayOutputStream()
+      keyStore.store(bOut, "keyStoreKey".toCharArray)
+      bOut.toByteArray
 
   def storeKey[F[_]: Files](key: SecretKeySpec, password: String, alias: String, fileName: String): Stream[F, Nothing] =
     Stream
-      .chunk(Chunk.array(fromKeyToKeyStore(key, alias, password)))
+      .chunk(Chunk.array(fromKeyToKeyStore(key, alias, password, fileName)))
       .through(Files[F].writeAll(Path(fileName)))
 
   def getKeyFromFile(alias: String, password: String, file: String): SecretKeySpec =
     val keyStoreFile             = new File(file)
     val inputStream: InputStream = new FileInputStream(keyStoreFile)
     val keyStore                 = KeyStore.getInstance("BCFKS", "BC")
-    keyStore.load(inputStream, password.toCharArray)
+    keyStore.load(inputStream, "keyStoreKey".toCharArray)
     val key = keyStore.getKey(alias, password.toCharArray)
     new SecretKeySpec(key.getEncoded, "AES")

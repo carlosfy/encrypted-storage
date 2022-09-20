@@ -16,11 +16,10 @@ object ClientApp extends IOApp:
 
   def tryOpenKeyStore[F[_]: Console: Async]: F[SecretKeySpec] =
     for {
-      userOp <- Console[F].readLine("UserName? ")
-      user = userOp.getOrElse("")
-      passwordOP <- Console[F].readLine("Password? ")
-      password = passwordOP.getOrElse("")
-      key <- Async[F].pure(getKeyFromFile(user, password, "myKeyStore.bks"))
+      user     <- Console[F].readLine("Username? ").map(_.getOrElse(""))
+      _        <- Console[F].println(s"Username: $user")
+      password <- Console[F].readLine("Password? ").map(_.getOrElse(""))
+      key      <- Async[F].pure(getKeyFromFile(user, password, "myKeyStore.bks"))
     } yield (key)
 
   def createClient[F[_]: Console: Async](
