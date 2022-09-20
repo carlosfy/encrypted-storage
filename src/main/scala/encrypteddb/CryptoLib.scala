@@ -10,9 +10,10 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter
 import org.bouncycastle.util.encoders.Hex
 import org.bouncycastle.util.io.pem.{PemObject, PemReader}
+import sun.security.util.Password
 
-import java.io.{File, FileReader, StringWriter}
-import java.security.Security
+import java.io.{ByteArrayOutputStream, File, FileInputStream, FileReader, InputStream, StringWriter}
+import java.security.{KeyStore, Security}
 import javax.crypto.*
 import javax.crypto.spec.SecretKeySpec
 import scala.concurrent.duration.*
@@ -58,3 +59,24 @@ object CryptoLib:
     val content   = pemObject.getContent
 
     new SecretKeySpec(content, 0, 32, "AES")
+
+  def fromKeyToKeyStore(key: SecretKeySpec, alias: String, password: String): Array[Byte] =
+    val keyStore = KeyStore.getInstance("BCFKS", "BC")
+    keyStore.load(null, null)
+    keyStore.setKeyEntry(alias, key, password.toCharArray, null)
+    val bOut = new ByteArrayOutputStream()
+    keyStore.store(bOut, password.toCharArray)
+    bOut.toByteArray
+
+  def storeKey[F[_]: Files](key: SecretKeySpec, password: String, alias: String, fileName: String): Stream[F, Nothing] =
+    Stream
+      .chunk(Chunk.array(fromKeyToKeyStore(key, alias, password)))
+      .through(Files[F].writeAll(Path(fileName)))
+
+  def getKeyFromFile(alias: String, password: String, file: String): SecretKeySpec =
+    val keyStoreFile             = new File(file)
+    val inputStream: InputStream = new FileInputStream(keyStoreFile)
+    val keyStore                 = KeyStore.getInstance("BCFKS", "BC")
+    keyStore.load(inputStream, password.toCharArray)
+    val key = keyStore.getKey(alias, password.toCharArray)
+    new SecretKeySpec(key.getEncoded, "AES")
