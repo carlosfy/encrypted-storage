@@ -15,6 +15,17 @@ import java.io.FileNotFoundException
 import javax.crypto.spec.{IvParameterSpec, SecretKeySpec}
 import javax.crypto.{Cipher, SecretKey}
 
+/**
+ * Trait defining a client, it start handling commands. Handled commands: push <file>, get <file> In order to create a
+ * new type of client you should extend the trait, and implement pushStream and getStream, which define what the clietn
+ * doest while pushing a stream into the TCP socket or just after getting it.
+ * @param address
+ * @param async$F$0
+ * @param network$F$1
+ * @param console$F$2
+ * @param files$F$3
+ * @tparam F
+ */
 abstract class Client[F[_]: Async: Network: Console: Files](address: SocketAddress[Host]):
   import Client.*
 
@@ -24,7 +35,7 @@ abstract class Client[F[_]: Async: Network: Console: Files](address: SocketAddre
       _ <- start
     } yield ()
 
-  def handleCommand: F[Unit] =
+  protected def handleCommand: F[Unit] =
     for {
       command <- (Console[F].readLine("Enter Command > "))
       _ <- command.getOrElse("").split(" ").toList match
@@ -58,34 +69,66 @@ abstract class Client[F[_]: Async: Network: Console: Files](address: SocketAddre
             streamPrint(s"Receive file done")
         }).compile.drain
 
-  def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing]
-  def getStream(socket: Socket[F]): Stream[F, Byte]
+  protected def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing]
+  protected def getStream(socket: Socket[F]): Stream[F, Byte]
 
+/**
+ * A client that just send and receives files from the server. Not encrypted
+ * @param address
+ * @param async$F$0
+ * @param network$F$1
+ * @param console$F$2
+ * @param files$F$3
+ * @tparam F
+ */
 case class BasicClient[F[_]: Async: Network: Console: Files](address: SocketAddress[Host]) extends Client[F](address) {
   import Client.*
 
-  def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing] =
+  protected def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing] =
     stream
       .through(socket.writes)
 
-  def getStream(socket: Socket[F]): Stream[F, Byte] =
+  protected def getStream(socket: Socket[F]): Stream[F, Byte] =
     socket.reads
 }
 
+/**
+ * Same as the basic client but it will print the Chunk[Byte] as it process them.
+ * @param address
+ * @param chunkSize
+ * @param async$F$0
+ * @param network$F$1
+ * @param console$F$2
+ * @param files$F$3
+ * @tparam F
+ */
 case class DebugClient[F[_]: Async: Network: Console: Files](address: SocketAddress[Host], chunkSize: Int)
     extends Client[F](address) {
   import Client.*
 
-  def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing] =
+  protected def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing] =
     stream
       .through(showChunks(chunkSize))
       .through(socket.writes)
 
-  def getStream(socket: Socket[F]): Stream[F, Byte] =
+  protected def getStream(socket: Socket[F]): Stream[F, Byte] =
     socket.reads
       .through(showChunks(chunkSize))
 }
 
+/**
+ * This client uses a given private key, iv and a cipher for encrypting the outgoing data streams, and decrypting the
+ * incoming data streams
+ * @param address
+ * @param cipher
+ * @param key
+ * @param iv
+ * @param async$F$0
+ * @param network$F$1
+ * @param console$F$2
+ * @param files$F$3
+ * @tparam F
+ */
 case class EncryptedClient[F[_]: Async: Network: Console: Files](
     address: SocketAddress[Host],
     cipher: Cipher,
@@ -94,13 +137,13 @@ case class EncryptedClient[F[_]: Async: Network: Console: Files](
 ) extends Client[F](address) {
   import Client.*
 
-  def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing] =
+  protected def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing] =
     cipher.init(Cipher.ENCRYPT_MODE, key, iv) // Not FP
     stream
       .through(encryptStream[F](_, cipher, 128))
       .through(socket.writes)
 
-  def getStream(socket: Socket[F]): Stream[F, Byte] =
+  protected def getStream(socket: Socket[F]): Stream[F, Byte] =
     cipher.init(Cipher.DECRYPT_MODE, key, iv) // Not FP
     socket.reads
       .through(encryptStream[F](_, cipher, 128))

@@ -6,6 +6,10 @@ import org.jline.reader.EndOfFileException
 import org.jline.reader.LineReaderBuilder
 import org.jline.reader.UserInterruptException
 
+/**
+ * Since there is not GUI for the application the goal of this console is to improve the user experience.
+ * @tparam F
+ */
 trait Console[F[_]]:
   def println(msg: String): F[Unit]
   def readLine(prompt: String): F[Option[String]]

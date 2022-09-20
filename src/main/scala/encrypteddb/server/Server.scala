@@ -16,6 +16,13 @@ import cats.effect.std.UUIDGen
 
 import java.util.UUID
 
+/**
+ * Server application that will listen for incoming TCP connections on a given port. It will handle 2 type of request:
+ * PUSH and GET.
+ *   - PUSH filename: reads an incoming Stream[F, Byte] and create a file called $filename on the folder called
+ *     $serverFolderName, containing that stream.
+ *   - GET filename: read the file called $filename on the folder $serverFolderName and it push it through the socket.
+ */
 object Server:
 
   def serverFolderName = "serverFiles/"
@@ -23,6 +30,7 @@ object Server:
   case class InvalidClientResponse(response: String) extends Exception(response)
   case class UnknownCommand(command: String)         extends Exception(command)
 
+  // This is a decorator for a socket, so we can produce richer logs.
   case class Connected[F[_]](
       id: UUID,
       socket: Socket[F]
@@ -48,7 +56,7 @@ object Server:
           .flatMap(handleClient)
           .scope
           .handleErrorWith { error =>
-            sendError(client, error.getMessage) ++
+            sendError(client, error.getMessage) ++ // Error logic should be handle on the clientSide.
               Stream.eval(client.endOfInput)
           }
           .drain
@@ -68,7 +76,6 @@ object Server:
       streamPrint(s"[${client.id}] Handled")
 
   // Controller
-  // Routes
 
   def handler[F[_]: Files: Network: Async: Console](command: String, client: Connected[F]): Stream[F, Unit] =
     streamPrint(s"[${client.id}] Received command: $command") ++ {
@@ -108,6 +115,7 @@ object Server:
       sendFile(client.socket, serverFolderName + file)
 
   // Message Primitives
+  // Adapted method from CommonMethod so the server can print logs
 
   def sendMessageConnected[F[_]: Network: Concurrent](client: Connected[F], message: String): Stream[F, Unit] =
     sendMessage(client.socket, message)

@@ -8,6 +8,16 @@ import org.bouncycastle.util.encoders.Hex
 import java.security.SecureRandom
 import javax.crypto.spec.SecretKeySpec
 
+/**
+ * Script to create a new alias/password (used as username byt the client). The first run will create a KeyStore with
+ * the name "myKeyStore.bks" on the root file of the project. The follow runs will complete this KeyStores with new
+ * additional keys
+ *
+ * Each run it creates a new key with a different alias, and protected by a password. If the alias already exist, it
+ * will throw an Error.
+ *
+ * It need to be run before using the Encrypted client.
+ */
 object CreateKey extends IOApp.Simple:
 
   def run: IO[Unit] =

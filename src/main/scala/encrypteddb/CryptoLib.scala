@@ -18,6 +18,9 @@ import javax.crypto.*
 import javax.crypto.spec.SecretKeySpec
 import scala.concurrent.duration.*
 
+/**
+ * Methods used for security purpose (encrypt, decrypt, key creatiom, Keystore creation, etc)
+ */
 object CryptoLib:
 
   def setBouncyCastleProvider(): Unit =

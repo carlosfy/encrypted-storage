@@ -8,6 +8,9 @@ import fs2.{text, Chunk, Stream}
 import java.io.FileNotFoundException
 import scala.concurrent.duration.*
 
+/**
+ * Method for TCP/file stream manipulation
+ */
 object CommonMethods:
 
   def sendMessage[F[_]: Network](socket: Socket[F], command: String): Stream[F, Unit] =

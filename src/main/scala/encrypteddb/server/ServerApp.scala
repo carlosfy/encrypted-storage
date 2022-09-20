@@ -6,6 +6,9 @@ import encrypteddb.Console
 
 import java.io.File
 
+/**
+ * Script for launching the server
+ */
 object ServerApp extends IOApp:
 
   def run(args: List[String]): IO[ExitCode] =
