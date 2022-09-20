@@ -27,11 +27,11 @@ abstract class Client[F[_]: Async: Network: Console: Files](address: SocketAddre
   def handleCommand: F[Unit] =
     for {
       command <- (Console[F].readLine("Enter Command > "))
-      _       <- command.getOrElse("").split(" ").toList match
+      _ <- command.getOrElse("").split(" ").toList match
         case "PUSH" :: (file: String) :: _ => push(file)
         case "GET" :: (file: String) :: _  => get(file)
-        case _                   => Async[F].pure(())
-      } yield ()
+        case _                             => Async[F].pure(())
+    } yield ()
 
   def push(file: String): F[Unit] =
     (streamPrint(s"Trying to push file $file to $address") ++
@@ -61,7 +61,7 @@ abstract class Client[F[_]: Async: Network: Console: Files](address: SocketAddre
   def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing]
   def getStream(socket: Socket[F]): Stream[F, Byte]
 
-case class BasicClient[F[_]: Async: Network:  Console: Files](address: SocketAddress[Host]) extends Client[F](address) {
+case class BasicClient[F[_]: Async: Network: Console: Files](address: SocketAddress[Host]) extends Client[F](address) {
   import Client.*
 
   def pushStream(stream: Stream[F, Byte], socket: Socket[F]): Stream[F, Nothing] =
@@ -72,7 +72,7 @@ case class BasicClient[F[_]: Async: Network:  Console: Files](address: SocketAdd
     socket.reads
 }
 
-case class DebugClient[F[_]: Async: Network:  Console: Files](address: SocketAddress[Host], chunkSize: Int)
+case class DebugClient[F[_]: Async: Network: Console: Files](address: SocketAddress[Host], chunkSize: Int)
     extends Client[F](address) {
   import Client.*
 

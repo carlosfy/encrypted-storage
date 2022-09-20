@@ -1,6 +1,5 @@
 package encrypteddb
 
-
 import cats.effect.Sync
 import cats.implicits._
 import org.jline.reader.EndOfFileException
