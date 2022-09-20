@@ -14,6 +14,29 @@ import javax.crypto.spec.{IvParameterSpec, SecretKeySpec}
 
 object ClientApp extends IOApp:
 
+  def tryOpenKeyStore[F[_]: Console: Async]: F[SecretKeySpec] =
+    for {
+      userOp       <- Console[F].readLine("UserName? ")
+      user = userOp.getOrElse("")
+      passwordOP <- Console[F].readLine("Password? ")
+      password = passwordOP.getOrElse("")
+      key      <- Async[F].pure(getKeyFromFile(user, password,"myKeyStore.bks" ))
+    } yield (key)
+
+
+  def createClient[F[_]: Console: Async](address: SocketAddress[Hostname], iv: IvParameterSpec, cipher: Cipher): F[Client[F]] =
+    for {
+      answer <- Console[F].readLine("Do you want to encrypt your files? ")
+      client      <- answer.getOrElse("") match
+        case "yes" => tryOpenKeyStore[F]
+          .flatTap(_ => Console[F].println("Encrypted client created"))
+          .map(key => EncryptedClient(address, cipher, key, iv))
+          .handleErrorWith(err => Console[F].println( err.toString) >> createClient[F](address, iv, cipher))
+        case "no"  => Console[F].println("Basic client created").as(BasicClient[F](address))
+        case res => Console[F].println(s"Unknown response: $res") >> createClient(address, iv, cipher)
+    } yield client
+
+
   def run(args: List[String]): IO[ExitCode] =
     Console.create[IO].flatMap { implicit console =>
       for {
@@ -21,7 +44,6 @@ object ClientApp extends IOApp:
         _ <- IO(setBouncyCastleProvider())
 
         address <- IO(SocketAddress(host"localhost", port"5555"))
-        keySpec <- IO(getKeyFromFile("key1", "pass", "myKeyStore.bks"))
 
         iv     <- IO(Hex.decode("01020304050607080910111213141516"))
         ivSpec <- IO(new IvParameterSpec(iv))
@@ -29,9 +51,9 @@ object ClientApp extends IOApp:
 
         //      client <- IO(BasicClient[IO](address))
         //      client <- IO(DebugClient[IO](address, 20))
-        client <- IO(EncryptedClient[IO](address, cipher, keySpec, ivSpec))
+        client <- createClient(address, ivSpec, cipher)
 
-        _ <- client.start
+        _ <- client.start.handleErrorWith(err => IO.raiseError(err))
 
       } yield ExitCode.Success
 
